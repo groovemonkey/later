@@ -33,7 +33,16 @@ Get reminded of a certain thought (or other string) at a random time in the next
 - email sending
 - SMS sending
 - web/API frontend, user registration, CRUD on tasks, see past tasks, etc.
-- iPhone app?
+- iPhone app which uses the frontend API?
+
+### Infra
+- run on AWS
+- Frontend and backend go binaries designed to run separately, frontend hits backend via HTTP API
+- Nomad running binaries packaged into Alpine containers (or even running as raw_binary jobtype in Nomad!)
+  - one or more of each container/binary (parallel processing against redis needs to be safe for this to work)
+  - redis container with persistent volume
+  - managed postgres instance or maybe just a container w/ persistent volume
+- Safe crash + restart behavior for data persistence (temp queues for in-flight work that get carefully flushed on startup?)
 
 
 ## Dev/Testing
