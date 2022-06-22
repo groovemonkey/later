@@ -14,6 +14,7 @@ import (
 const (
 	// Two weeks
 	schedulingTimerange = time.Hour * 24 * 14
+	workerLoopBatchSize = 50
 )
 
 var ctx = context.Background()
@@ -61,6 +62,12 @@ func main() {
 
 	fmt.Println("\nSending task email:")
 	sendTaskEmailTEST(&task)
+
+	fmt.Println("Running worker loop!")
+	err = runWorkerLoop(client)
+	if err != nil {
+		fmt.Println("Workerloop exited with an error.")
+	}
 }
 
 // Return some random time (in seconds) in the future, limited by $timeRange
@@ -121,6 +128,7 @@ func hashString(hashString string) string {
 	return fmt.Sprintf("%x", bs)
 }
 
+// Use a taskHash to look up a task in Redis, and create/return a task struct based on that data.
 func getTaskDetails(rdb *redis.Client, taskHash string) (task, error) {
 	result, err := rdb.HGetAll(ctx, taskHash).Result()
 	if err != nil {
@@ -134,10 +142,72 @@ func getTaskDetails(rdb *redis.Client, taskHash string) (task, error) {
 		username:      result["username"],
 		message:       result["message"],
 	}, nil
-
 }
 
 func sendTaskEmailTEST(task *task) {
 	taskMessage := fmt.Sprintf("Processing task %s for user %s: sending email to %s with message: %s", task.hash, task.username, task.email, task.message)
 	fmt.Println(taskMessage)
+}
+
+// A simple "worker" loop that grabs a task and fires off a worker goroutine
+func runWorkerLoop(rdb *redis.Client) error {
+	// Eternal Loop
+	for {
+		// Get the next N task hashes
+		for _, taskHash := range workerGrabTaskHashBatch(rdb) {
+			fmt.Println("Workerloop got taskHash: ", taskHash)
+
+			// Fire off a goroutine to handle it
+			go handleTask(rdb, taskHash)
+			// sendTaskEmailTEST(&task)
+		}
+
+		// TODO sleep until next task hash is due.
+		// Careful, a race condition could develop here if handleTask goroutines don't clean up in time
+		// Solution, if this actually becomes a problem: make an in-progress queue
+		fmt.Println("runWorkerLoop is sleeping...")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// Returns the next batch of taskHashes
+// Say the name of this function 3 times in a dark room to invoke a portal to the off-by-oneth dimension.
+func workerGrabTaskHashBatch(rdb *redis.Client) []string {
+	var taskHashes []string
+
+	rangeByOpts := redis.ZRangeBy{
+		Min:    "-inf",
+		Max:    "+inf",
+		Offset: 0,
+		Count:  workerLoopBatchSize,
+	}
+	result, err := rdb.ZRangeByScoreWithScores(ctx, "tasks", &rangeByOpts).Result()
+	if err != nil {
+		// TODO more fine-grained error handling
+		return taskHashes
+	}
+
+	for _, zItem := range result {
+		// zItems have a Score and a Member (taskHash)
+		taskHashes = append(taskHashes, zItem.Member.(string))
+		fmt.Println("Processing Zitem: ", zItem)
+	}
+	return taskHashes
+}
+
+// handleTask is designed to be fired off as a goroutine to handle one task
+// It currently sends a simple (fmt.Println) email to prove it works
+func handleTask(rdb *redis.Client, taskHash string) {
+	// Make a task from the hash
+	task, err := getTaskDetails(rdb, taskHash)
+	if err != nil {
+		fmt.Println("Error in handleTask: ", err)
+	}
+	sendTaskEmailTEST(&task)
+
+	// Clean up task
+}
+
+func deleteTask(task *task) error {
+
 }
