@@ -136,7 +136,7 @@ func getTaskDetails(rdb *redis.Client, taskHash string) (task, error) {
 	}
 
 	return task{
-		hash:          result["key"],
+		hash:          result["hash"],
 		email:         result["email"],
 		scheduledTime: result["scheduledTimeSecs"],
 		username:      result["username"],
@@ -204,10 +204,27 @@ func handleTask(rdb *redis.Client, taskHash string) {
 		fmt.Println("Error in handleTask: ", err)
 	}
 	sendTaskEmailTEST(&task)
-
 	// Clean up task
+	deleteTask(rdb, &task)
 }
 
-func deleteTask(task *task) error {
+func deleteTask(rdb *redis.Client, task *task) {
+	fmt.Printf("\nDeleting task info from redis: %v", task)
 
+	// Delete the task details Hash
+	rdb.Del(ctx, task.hash).Result()
+
+	// Delete this taskHash from the sorted set that holds task/timing info
+	rdb.ZRem(ctx, "tasks", task.hash).Result()
+
+	// Delete from the `username_tasks` list, namespaced under the username
+	userTaskListName := fmt.Sprintf("%s_tasks", task.username)
+	rdb.LRem(ctx, userTaskListName, 1, task.hash).Result()
+
+	// Delete the whole list if it's now empty
+	llen, err := rdb.LLen(ctx, userTaskListName).Result()
+	if (err == nil) && (llen == 0) {
+		fmt.Println("Deleted empty user task list: ", userTaskListName)
+		rdb.Del(ctx, userTaskListName).Result()
+	}
 }

@@ -7,9 +7,10 @@ Get reminded of a certain thought (or other string) at a random time in the next
 
 ## TODO
 - make it work
-  - "Main Worker-Pool Manager Thread" (below): build a simple "worker" loop that grabs a task and fires off a worker goroutine
-  - "Goroutine worker" (below): worker goroutine sends a simple (fmt.Println) email to prove it works
+  - delete is broken
+  - worker: resolve time value from timestamp and sleep until then
 
+- fmt. to log.
 - how does that redis response value work? (*redis.IntCmd and https://redis.uptrace.dev/guide/go-redis.html#redis-nil)
 - add error handling to the redis calls
 - read in schedulingTimerange from environment variables
