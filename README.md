@@ -5,6 +5,17 @@ This is just a fun little experiment to learn Go (and play with my favorite data
 Get reminded of a certain thought (or other string) at a random time in the next $DURATION.
 
 
+## TODO
+- make it work
+  - "Main Worker-Pool Manager Thread" (below): build a simple "worker" loop that grabs a task and fires off a worker goroutine
+  - "Goroutine worker" (below): worker goroutine sends a simple (fmt.Println) email to prove it works
+
+- how does that redis response value work? (*redis.IntCmd and https://redis.uptrace.dev/guide/go-redis.html#redis-nil)
+- add error handling to the redis calls
+- read in schedulingTimerange from environment variables
+- read in redis host/user/pass from environment variables
+
+
 ## Dev/Testing
 
 ### Get yourself a redis
