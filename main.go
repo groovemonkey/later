@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "context"
 	"context"
 	"crypto/sha1"
 	"fmt"
@@ -11,15 +10,15 @@ import (
 	"github.com/go-redis/redis/v9"
 )
 
+// TODO these should probably be env vars, not constants
 const (
-	// Two weeks
-	schedulingTimerange = time.Hour * 24 * 14
-	workerLoopBatchSize = 50
+	schedulingTimerange = time.Hour * 24 * 14 // Two weeks
+	maxWorkers          = 50
 )
 
 var ctx = context.Background()
 
-type user struct {
+type User struct {
 	name  string
 	email string
 }
@@ -41,15 +40,15 @@ func main() {
 		DB:       0,
 	})
 
-	dave := user{
+	dave := User{
 		name:  "dave",
 		email: "dave@example.org",
 	}
 
-	fmt.Println("\nWriting to redis with createUserTask()")
-	taskHash, err := createUserTask(client, &dave, "This is a task message! Woohoo! Test all kinds of symbols and stuff in here.")
+	fmt.Println("\nWriting to redis with CreateUserTask()")
+	taskHash, err := CreateUserTask(client, &dave, "This is a task message! Woohoo! Test all kinds of symbols and stuff in here.")
 	if err != nil {
-		panic("Error while trying to createUserTask()")
+		panic("Error while trying to CreateUserTask()")
 	}
 	fmt.Println("Taskhash is ", taskHash)
 
@@ -84,7 +83,7 @@ func generateFutureTimeSeconds(timeRange time.Duration) int64 {
 }
 
 // Create a user task, and store it in the appropriate places in Redis. Return the task's hash and an optional error.
-func createUserTask(rdb *redis.Client, user *user, message string) (string, error) {
+func CreateUserTask(rdb *redis.Client, user *User, message string) (string, error) {
 	// Pick a time
 	scheduledTimeSecs := generateFutureTimeSeconds(schedulingTimerange)
 
@@ -151,15 +150,22 @@ func sendTaskEmailTEST(task *task) {
 
 // A simple "worker" loop that grabs a task and fires off a worker goroutine
 func runWorkerLoop(rdb *redis.Client) error {
+	// Set up waitgroup
+	wg := new(WaitGroupCount)
+
 	// Eternal Loop
 	for {
-		// Get the next N task hashes
-		for _, taskHash := range workerGrabTaskHashBatch(rdb) {
-			fmt.Println("Workerloop got taskHash: ", taskHash)
+		if wg.count < maxWorkers {
+			// Get the next N task hashes
+			for _, taskHash := range workerGrabTaskHashBatch(rdb, maxWorkers) {
+				fmt.Println("Workerloop got taskHash: ", taskHash)
 
-			// Fire off a goroutine to handle it
-			go handleTask(rdb, taskHash)
-			// sendTaskEmailTEST(&task)
+				// Fire off a goroutine to handle it
+				wg.Add(1)
+				go handleTask(rdb, wg, taskHash)
+			}
+		} else {
+			fmt.Printf("\nrunWorkerLoop WaitGroupCount is already at max (%d). Not taking on any more work in this iteration.", wg.count)
 		}
 
 		// TODO sleep until next task hash is due.
@@ -172,14 +178,14 @@ func runWorkerLoop(rdb *redis.Client) error {
 
 // Returns the next batch of taskHashes
 // Say the name of this function 3 times in a dark room to invoke a portal to the off-by-oneth dimension.
-func workerGrabTaskHashBatch(rdb *redis.Client) []string {
+func workerGrabTaskHashBatch(rdb *redis.Client, batchSize int64) []string {
 	var taskHashes []string
 
 	rangeByOpts := redis.ZRangeBy{
 		Min:    "-inf",
 		Max:    "+inf",
 		Offset: 0,
-		Count:  workerLoopBatchSize,
+		Count:  batchSize,
 	}
 	result, err := rdb.ZRangeByScoreWithScores(ctx, "tasks", &rangeByOpts).Result()
 	if err != nil {
@@ -197,7 +203,9 @@ func workerGrabTaskHashBatch(rdb *redis.Client) []string {
 
 // handleTask is designed to be fired off as a goroutine to handle one task
 // It currently sends a simple (fmt.Println) email to prove it works
-func handleTask(rdb *redis.Client, taskHash string) {
+func handleTask(rdb *redis.Client, wg *WaitGroupCount, taskHash string) {
+	defer wg.Done()
+
 	// Make a task from the hash
 	task, err := getTaskDetails(rdb, taskHash)
 	if err != nil {
